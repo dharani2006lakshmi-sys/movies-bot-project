@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #14121f; color: #fff; min-height: 100vh; padding: 20px; }
+  .container { max-width: 800px; margin: 0 auto; }
+  h1 { margin-bottom: 20px; }
+  .box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  input, select, textarea {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: #1e1b3a;
+    color: #fff;
+    font-size: 14px;
+  }
+  label { font-size: 13px; color: #b8b8d1; display: block; margin-bottom: 4px; }
+  button {
+    background: linear-gradient(135deg, #6a5acd, #9b59b6);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+  button.secondary { background: #444; }
+  button.danger { background: #b33; }
+  .app-row {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 12px 0;
+  }
+  .app-row h3 { font-size: 15px; }
+  .app-row p { font-size: 12px; color: #b8b8d1; margin: 4px 0; }
+  .link-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .link-item input { margin-bottom: 0; }
+  .hidden { display: none; }
+  #loginBox { max-width: 360px; margin: 80px auto; }
+</style>
+</head>
+<body>
+
+<div id="loginBox" class="box">
+  <h2>Admin Login</h2>
+  <label>Email</label>
+  <input type="email" id="loginEmail" placeholder="you@example.com">
+  <label>Password</label>
+  <input type="password" id="loginPassword" placeholder="••••••••">
+  <button onclick="login()">Login</button>
+  <p id="loginError" style="color:#f55; font-size:13px;"></p>
+</div>
+
+<div id="adminPanel" class="container hidden">
+  <h1>⚙️ Admin Panel</h1>
+  <button class="secondary" onclick="logout()">Logout</button>
+
+  <!-- Categories -->
+  <div class="box">
+    <h2>Categories</h2>
+    <div id="categoryList"></div>
+    <label>New category name</label>
+    <input id="newCategoryName" placeholder="e.g. Movies">
+    <button onclick="addCategory()">Add Category</button>
+  </div>
+
+  <!-- Add / Edit App -->
+  <div class="box">
+    <h2 id="formTitle">Add New App</h2>
+    <input type="hidden" id="appId">
+
+    <label>App Name</label>
+    <input id="appName" placeholder="e.g. YouTube">
+
+    <label>Description</label>
+    <textarea id="appDescription" rows="2" placeholder="Short description"></textarea>
+
+    <label>Icon URL</label>
+    <input id="appIcon" placeholder="https://...">
+
+    <label>Category</label>
+    <select id="appCategory"></select>
+
+    <label>Version</label>
+    <input id="appVersion" placeholder="e.g. 1.0">
+
+    <label>
+      <input type="checkbox" id="appPublished" style="width:auto; display:inline; margin-right:6px;" checked>
+      Published (visible on site)
+    </label>
+
+    <h3 style="margin: 14px 0 8px;">Download Links</h3>
+    <div id="linksContainer"></div>
+    <button class="secondary" onclick="addLinkField()">+ Add Link</button>
+
+    <div style="margin-top: 14px;">
+      <button onclick="saveApp()">Save App</button>
+      <button class="secondary" onclick="resetForm()">Clear</button>
+    </div>
+  </div>
+
+  <!-- App List -->
+  <div class="box">
+    <h2>All Apps</h2>
+    <div id="appList">Loading...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // ⚠️ Fill these in
+  const SUPABASE_URL = "https://your-project.supabase.co";
+  const SUPABASE_ANON_KEY = "your-anon-key-here";
+  const API_BASE = "https://your-backend.onrender.com";
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let session = null;
+  let categories = [];
+
+  // ---------- AUTH ----------
+  async function login() {
+    const email = document.getElementById("loginEmail").value;
+    const password = document.getElementById("loginPassword").value;
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      document.getElementById("loginError").innerText = error.message;
+      return;
+    }
+    session = data.session;
+    document.getElementById("loginBox").classList.add("hidden");
+    document.getElementById("adminPanel").classList.remove("hidden");
+    init();
+  }
+
+  function logout() {
+    supabase.auth.signOut();
+    location.reload();
+  }
+
+  async function getToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token;
+  }
+
+  // ---------- INIT ----------
+  async function init() {
+    await loadCategories();
+    await loadApps();
+  }
+
+  // ---------- CATEGORIES ----------
+  async function loadCategories() {
+    const token = await getToken();
+    const res = await fetch(`${API_BASE}/api/admin/categories`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    categories = await res.json();
+
+    const list = document.getElementById("categoryList");
+    list.innerHTML = categories.map(c => `
+      <div class="link-item">
+        <span style="flex:1">${c.name}</span>
+        <button class="danger" onclick="deleteCategory('${c.id}')">Delete</button>
+      </div>
+    `).join('');
+
+    const select = document.getElementById("appCategory");
+    select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  }
+
+  async function addCategory() {
+    const name = document.getElementById("newCategoryName").value.trim();
+    if (!name) return;
+    const token = await getToken();
+    await fetch(`${API_BASE}/api/admin/categories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name, sort_order: categories.length }),
+    });
+    document.getElementById("newCategoryName").value = "";
+    await loadCategories();
+  }
+
+  async function deleteCategory(id) {
+    if (!confirm("Delete this category? Apps in it will become uncategorized.")) return;
+    const token = await getToken();
+    await fetch(`${API_BASE}/api/admin/categories/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await loadCategories();
+  }
+
+  // ---------- LINKS (dynamic fields) ----------
+  function addLinkField(label = "", telegram_file_id = "", file_name = "") {
+    const container = document.getElementById("linksContainer");
+    const row = document.createElement("div");
+    row.className = "link-item";
+    row.innerHTML = `
+      <input placeholder="Label (e.g. YouTube)" class="link-label" value="${label}">
+      <input placeholder="Telegram file_id" class="link-fileid" value="${telegram_file_id}">
+      <input placeholder="File name (e.g. youtube.apk)" class="link-filename" value="${file_name}">
+      <button class="danger" onclick="this.parentElement.remove()">✕</button>
+    `;
+    container.appendChild(row);
+  }
+
+  // ---------- APPS ----------
+  async function loadApps() {
+    const token = await getToken();
+    const res = await fetch(`${API_BASE}/api/admin/apps`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const apps = await res.json();
+
+    const list = document.getElementById("appList");
+    list.innerHTML = apps.map(app => `
+      <div class="app-row">
+        <h3>${app.name} ${app.is_published ? '' : '<span style="color:#f90">(hidden)</span>'}</h3>
+        <p>${app.description || ''}</p>
+        <p>Links: ${(app.app_links || []).map(l => l.label).join(', ') || 'none'}</p>
+        <button class="secondary" onclick='editApp(${JSON.stringify(app).replace(/'/g, "&apos;")})'>Edit</button>
+        <button class="danger" onclick="deleteApp('${app.id}')">Delete</button>
+      </div>
+    `).join('');
+  }
+
+  function editApp(app) {
+    document.getElementById("formTitle").innerText = "Edit App";
+    document.getElementById("appId").value = app.id;
+    document.getElementById("appName").value = app.name || "";
+    document.getElementById("appDescription").value = app.description || "";
+    document.getElementById("appIcon").value = app.icon_url || "";
+    document.getElementById("appCategory").value = app.category_id || "";
+    document.getElementById("appVersion").value = app.version || "";
+    document.getElementById("appPublished").checked = app.is_published;
+
+    document.getElementById("linksContainer").innerHTML = "";
+    (app.app_links || []).forEach(l => addLinkField(l.label, l.telegram_file_id, l.file_name));
+
+    window.scrollTo(0, 0);
+  }
+
+  function resetForm() {
+    document.getElementById("formTitle").innerText = "Add New App";
+    document.getElementById("appId").value = "";
+    document.getElementById("appName").value = "";
+    document.getElementById("appDescription").value = "";
+    document.getElementById("appIcon").value = "";
+    document.getElementById("appVersion").value = "";
+    document.getElementById("appPublished").checked = true;
+    document.getElementById("linksContainer").innerHTML = "";
+  }
+
+  async function saveApp() {
+    const id = document.getElementById("appId").value;
+
+    const links = Array.from(document.querySelectorAll("#linksContainer .link-item")).map(row => ({
+      label: row.querySelector(".link-label").value,
+      telegram_file_id: row.querySelector(".link-fileid").value,
+      file_name: row.querySelector(".link-filename").value,
+    })).filter(l => l.label && l.telegram_file_id);
+
+    const payload = {
+      name: document.getElementById("appName").value,
+      description: document.getElementById("appDescription").value,
+      icon_url: document.getElementById("appIcon").value,
+      category_id: document.getElementById("appCategory").value,
+      version: document.getElementById("appVersion").value,
+      is_published: document.getElementById("appPublished").checked,
+      links,
+    };
+
+    const token = await getToken();
+    const url = id ? `${API_BASE}/api/admin/apps/${id}` : `${API_BASE}/api/admin/apps`;
+    const method = id ? "PUT" : "POST";
+
+    await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+
+    resetForm();
+    await loadApps();
+  }
+
+  async function deleteApp(id) {
+    if (!confirm("Delete this app?")) return;
+    const token = await getToken();
+    await fetch(`${API_BASE}/api/admin/apps/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await loadApps();
+  }
+
+  // Check if already logged in
+  supabase.auth.getSession().then(({ data }) => {
+    if (data.session) {
+      session = data.session;
+      document.getElementById("loginBox").classList.add("hidden");
+      document.getElementById("adminPanel").classList.remove("hidden");
+      init();
+    }
+  });
+</script>
+
+</body>
+</html>

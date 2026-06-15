@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My App Store</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    min-height: 100vh;
+    padding: 30px 20px;
+    color: #fff;
+  }
+  h1.page-title {
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 28px;
+  }
+  .category {
+    max-width: 1000px;
+    margin: 0 auto 40px;
+  }
+  .category h2 {
+    font-size: 20px;
+    margin-bottom: 15px;
+    border-left: 4px solid #9b59b6;
+    padding-left: 10px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 18px;
+    padding: 22px 16px;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .card:hover { transform: translateY(-3px); }
+  .icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 16px;
+    margin: 0 auto 12px;
+    object-fit: cover;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+  }
+  .card h3 { font-size: 16px; margin-bottom: 4px; }
+  .card p { color: #b8b8d1; font-size: 12px; }
+
+  /* Modal for multi-link apps */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #1e1b3a;
+    border-radius: 18px;
+    padding: 28px;
+    max-width: 360px;
+    width: 90%;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .modal img.icon { width: 60px; height: 60px; margin-bottom: 10px; }
+  .modal h2 { margin-bottom: 6px; font-size: 18px; }
+  .modal p.desc { color: #b8b8d1; font-size: 13px; margin-bottom: 18px; }
+  .link-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #6a5acd, #9b59b6);
+    color: #fff;
+    text-decoration: none;
+    padding: 12px 0;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .close-btn {
+    margin-top: 6px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #b8b8d1;
+    padding: 8px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+  <h1 class="page-title">📱 App Store</h1>
+  <div id="content">Loading...</div>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+<script>
+  // ⚠️ Set this to your deployed backend URL (Render)
+  const API_BASE = "https://your-backend.onrender.com";
+
+  async function loadApps() {
+    try {
+      const res = await fetch(`${API_BASE}/api/apps`);
+      const categories = await res.json();
+      render(categories);
+    } catch (err) {
+      document.getElementById("content").innerText = "Failed to load apps.";
+      console.error(err);
+    }
+  }
+
+  function render(categories) {
+    const container = document.getElementById("content");
+    container.innerHTML = "";
+
+    categories.forEach((cat) => {
+      if (!cat.apps || cat.apps.length === 0) return;
+
+      const section = document.createElement("div");
+      section.className = "category";
+
+      const title = document.createElement("h2");
+      title.textContent = cat.name;
+      section.appendChild(title);
+
+      const grid = document.createElement("div");
+      grid.className = "grid";
+
+      cat.apps.forEach((app) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img src="${app.icon_url || ''}" class="icon" alt="${app.name}">
+          <h3>${app.name}</h3>
+          <p>${app.description || ''}</p>
+        `;
+        card.onclick = () => openApp(app);
+        grid.appendChild(card);
+      });
+
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
+  }
+
+  function openApp(app) {
+    const links = app.links || [];
+
+    if (links.length === 1) {
+      // Direct download, single file
+      window.location.href = `${API_BASE}/download/${links[0].id}`;
+      return;
+    }
+
+    // Multiple links -> show modal with options
+    const modalBox = document.getElementById("modalBox");
+    modalBox.innerHTML = `
+      <img src="${app.icon_url || ''}" class="icon" alt="${app.name}">
+      <h2>${app.name}</h2>
+      <p class="desc">${app.description || ''}</p>
+      ${links.map(l => `
+        <a class="link-btn" href="${API_BASE}/download/${l.id}">⬇ ${l.label}</a>
+      `).join('')}
+      <button class="close-btn" onclick="closeModal()">Close</button>
+    `;
+    document.getElementById("modalOverlay").classList.add("active");
+  }
+
+  function closeModal() {
+    document.getElementById("modalOverlay").classList.remove("active");
+  }
+
+  loadApps();
+</script>
+
+</body>
+</html>
